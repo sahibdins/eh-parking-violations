@@ -8,77 +8,66 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
-<body class="bg-gray-50 text-gray-900">
+<body class="bg-gray-900 text-gray-100">
   <div class="max-w-5xl mx-auto p-6">
     <header class="mb-6">
-      <h1 class="text-2xl font-bold">Parking Violations Lookup</h1>
-      <p class="text-sm text-gray-600 mt-1">
-        This page auto-loads the live Google Sheets CSV. You can also upload a CSV/XLSX manually if needed.
+      <h1 class="text-2xl font-bold text-white">Parking Violations Lookup</h1>
+      <p class="text-sm text-gray-400 mt-1">
+        Enter a license plate or driver name to see violations.
       </p>
     </header>
 
-    <!-- Auto-load status -->
-    <section class="bg-white rounded-xl shadow p-4 mb-6">
-      <div class="flex items-start justify-between gap-4">
-        <div>
-          <div class="text-sm font-medium">Live Google Sheets source</div>
-          <code class="text-xs break-all text-gray-600" id="csvSource"></code>
-        </div>
+    <!-- Status -->
+    <section class="bg-gray-800 rounded-xl shadow p-4 mb-6">
+      <div class="flex items-center justify-between gap-4">
+        <div id="loadStatus" class="text-sm text-gray-400">Loading data...</div>
         <button id="btnReload"
                 class="rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-medium hover:bg-emerald-700">
-          Reload now
+          Reload
         </button>
       </div>
-      <div id="loadStatus" class="mt-3 text-sm text-gray-700"></div>
-    </section>
-
-    <!-- Optional manual upload -->
-    <section class="bg-white rounded-xl shadow p-4 mb-6">
-      <label class="block text-sm font-medium mb-2">Or upload CSV or Excel</label>
-      <input id="fileInput" type="file" accept=".csv,.xlsx,.xls"
-             class="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
     </section>
 
     <!-- Search -->
-    <section class="bg-white rounded-xl shadow p-4 mb-6 hidden" id="searchSection">
+    <section class="bg-gray-800 rounded-xl shadow p-4 mb-6 hidden" id="searchSection">
       <div class="grid gap-3 md:grid-cols-3">
         <div>
-          <label for="plateQuery" class="block text-sm font-medium mb-2">Search by License Plate</label>
+          <label for="plateQuery" class="block text-sm font-medium text-gray-200 mb-2">Search by License Plate</label>
           <input id="plateQuery" type="text" placeholder="e.g., KS2-447"
-                 class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200" />
+                 class="w-full rounded-lg border border-gray-600 bg-gray-900 text-gray-100 px-3 py-2 focus:outline-none focus:ring focus:ring-emerald-500" />
         </div>
         <div>
-          <label for="nameQuery" class="block text-sm font-medium mb-2">Search by Driver Name</label>
+          <label for="nameQuery" class="block text-sm font-medium text-gray-200 mb-2">Search by Driver Name</label>
           <input id="nameQuery" type="text" placeholder="e.g., John Doe"
-                 class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200" />
+                 class="w-full rounded-lg border border-gray-600 bg-gray-900 text-gray-100 px-3 py-2 focus:outline-none focus:ring focus:ring-emerald-500" />
         </div>
         <div class="flex items-end">
           <button id="btnSearch" class="w-full md:w-auto rounded-lg bg-blue-600 text-white px-4 py-2 font-medium hover:bg-blue-700">Search</button>
-          <button id="btnClear"  class="w-full md:w-auto md:ml-2 rounded-lg bg-gray-200 text-gray-800 px-4 py-2 font-medium hover:bg-gray-300">Clear</button>
+          <button id="btnClear"  class="w-full md:w-auto md:ml-2 rounded-lg bg-gray-600 text-gray-100 px-4 py-2 font-medium hover:bg-gray-500">Clear</button>
         </div>
       </div>
       <div class="mt-4 grid gap-3 md:grid-cols-3">
-        <div class="bg-blue-50 rounded-lg p-3">
-          <div class="text-xs text-blue-700">Records loaded</div>
-          <div id="statRecords" class="text-xl font-semibold text-blue-900">0</div>
+        <div class="bg-blue-900 rounded-lg p-3">
+          <div class="text-xs text-blue-300">Records loaded</div>
+          <div id="statRecords" class="text-xl font-semibold text-blue-100">0</div>
         </div>
-        <div class="bg-green-50 rounded-lg p-3">
-          <div class="text-xs text-green-700">Matches found</div>
-          <div id="statMatches" class="text-xl font-semibold text-green-900">0</div>
+        <div class="bg-green-900 rounded-lg p-3">
+          <div class="text-xs text-green-300">Matches found</div>
+          <div id="statMatches" class="text-xl font-semibold text-green-100">0</div>
         </div>
-        <div class="bg-purple-50 rounded-lg p-3">
-          <div class="text-xs text-purple-700">Violations for this query</div>
-          <div id="statCount" class="text-xl font-semibold text-purple-900">0</div>
+        <div class="bg-purple-900 rounded-lg p-3">
+          <div class="text-xs text-purple-300">Violations for this query</div>
+          <div id="statCount" class="text-xl font-semibold text-purple-100">0</div>
         </div>
       </div>
     </section>
 
     <!-- Results -->
-    <section id="resultsWrap" class="bg-white rounded-xl shadow p-4 hidden">
-      <h2 class="text-lg font-semibold mb-3">Results</h2>
+    <section id="resultsWrap" class="bg-gray-800 rounded-xl shadow p-4 hidden">
+      <h2 class="text-lg font-semibold mb-3 text-gray-100">Results</h2>
       <div class="overflow-x-auto">
         <table class="min-w-full text-sm">
-          <thead class="bg-gray-100">
+          <thead class="bg-gray-700 text-gray-200">
             <tr>
               <th class="text-left px-3 py-2">Timestamp</th>
               <th class="text-left px-3 py-2">License Plate</th>
@@ -88,17 +77,16 @@
               <th class="text-left px-3 py-2">Enforcer</th>
             </tr>
           </thead>
-          <tbody id="resultsBody"></tbody>
+          <tbody id="resultsBody" class="divide-y divide-gray-700"></tbody>
         </table>
       </div>
     </section>
   </div>
 
   <script>
-    // 1) YOUR LIVE CSV URL (from “Publish to the web”)
+    // Live Google Sheets CSV link (kept hidden in code)
     const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQErBNRgH1hcQYmr4hwDiMeAB1-Xwu4AT_2r2dWuWEooMXm80T4dGzhjxzG6OehqOFux2kZDHaIaW3g/pub?output=csv";
 
-    // 2) Header mapping
     const COLS = {
       timestamp: ["timestamp","time stamp","date","date/time"],
       reason: ["reason for citation","reason","offense","offence"],
@@ -108,13 +96,9 @@
       enforcer: ["parking enforcer first and last name:","enforcer","issued by"]
     };
 
-    let DATA = [];
-    let HEADMAP = {};
+    let DATA = [], HEADMAP = {};
 
-    // UI refs
-    const csvSource   = document.getElementById("csvSource");
     const loadStatus  = document.getElementById("loadStatus");
-    const fileInput   = document.getElementById("fileInput");
     const searchSection = document.getElementById("searchSection");
     const resultsWrap = document.getElementById("resultsWrap");
     const resultsBody = document.getElementById("resultsBody");
@@ -124,13 +108,8 @@
     const plateQuery  = document.getElementById("plateQuery");
     const nameQuery   = document.getElementById("nameQuery");
 
-    csvSource.textContent = CSV_URL;
-
-    // Utils
     function norm(s){ return String(s||"").trim(); }
-    function escapeHtml(s){
-      return String(s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
-    }
+    function escapeHtml(s){ return String(s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;"); }
     function formatDate(s){
       const d = new Date(s);
       if (isNaN(d)) return s||"";
@@ -150,7 +129,7 @@
     }
     function buildHeadMap(headers){
       HEADMAP = {};
-      headers.forEach((h, i) => {
+      headers.forEach((h,i) => {
         const key = findKey(h);
         if (key && !(key in HEADMAP)) HEADMAP[key] = i;
       });
@@ -169,7 +148,7 @@
     function handleRecords(headers, rows){
       try { buildHeadMap(headers); }
       catch(e){
-        loadStatus.className = "mt-3 text-sm text-red-700";
+        loadStatus.className="text-sm text-red-400";
         loadStatus.textContent = e.message;
         return;
       }
@@ -177,68 +156,55 @@
       statRecords.textContent = DATA.length;
       searchSection.classList.remove("hidden");
       resultsWrap.classList.add("hidden");
-      loadStatus.className = "mt-3 text-sm text-green-700";
-      loadStatus.textContent = "Loaded " + DATA.length + " records from the live CSV.";
+      loadStatus.className="text-sm text-green-400";
+      loadStatus.textContent = "Loaded " + DATA.length + " records.";
     }
-
-    // Universal plate normalization: uppercase, remove spaces/dashes
-    function normalizePlate(s){
-      return String(s||"").toUpperCase().replace(/[-\s]/g,"");
-    }
-
+    function normalizePlate(s){ return String(s||"").toUpperCase().replace(/[-\s]/g,""); }
     function runSearch(){
       const plateQ = plateQuery.value.trim();
       const nameQ  = nameQuery.value.trim();
-
-      if (plateQ.length === 0 && nameQ.length === 0){
+      if (!plateQ && !nameQ){
         resultsWrap.classList.add("hidden");
         statMatches.textContent = 0;
         statCount.textContent = 0;
         resultsBody.innerHTML = "";
         return;
       }
-
       const normPlateQ = normalizePlate(plateQ);
-      const lcNameQ    = nameQ.toLowerCase();
-
+      const lcNameQ = nameQ.toLowerCase();
       const matches = DATA.filter(r => {
         let plateOk = true, nameOk = true;
-        if (plateQ.length > 0) plateOk = normalizePlate(r.plate).includes(normPlateQ); // partials OK
-        if (nameQ.length > 0)  nameOk  = String(r.name||"").toLowerCase().includes(lcNameQ);
+        if (plateQ) plateOk = normalizePlate(r.plate).includes(normPlateQ);
+        if (nameQ)  nameOk  = String(r.name||"").toLowerCase().includes(lcNameQ);
         return plateOk && nameOk;
       });
-
       statMatches.textContent = matches.length;
-      statCount.textContent   = matches.length;
-
+      statCount.textContent = matches.length;
       resultsBody.innerHTML = "";
       for (const r of matches){
         const tr = document.createElement("tr");
-        tr.className = "border-b";
         tr.innerHTML = `
-          <td class="px-3 py-2 whitespace-nowrap">${escapeHtml(formatDate(r.timestamp))}</td>
-          <td class="px-3 py-2 whitespace-nowrap font-semibold">${escapeHtml(r.plate)}</td>
+          <td class="px-3 py-2">${escapeHtml(formatDate(r.timestamp))}</td>
+          <td class="px-3 py-2 font-semibold">${escapeHtml(r.plate)}</td>
           <td class="px-3 py-2">${escapeHtml(r.name)}</td>
           <td class="px-3 py-2">${escapeHtml(r.reason)}</td>
           <td class="px-3 py-2">${escapeHtml(r.location || "")}</td>
-          <td class="px-3 py-2">${escapeHtml(r.enforcer || "")}</td>
-        `;
+          <td class="px-3 py-2">${escapeHtml(r.enforcer || "")}</td>`;
         resultsBody.appendChild(tr);
       }
       resultsWrap.classList.remove("hidden");
     }
-
-    // Load from Google Sheets CSV
     function loadFromCsv(){
-      loadStatus.className = "mt-3 text-sm text-gray-700";
-      loadStatus.textContent = "Fetching CSV from Google Sheets...";
+      loadStatus.className="text-sm text-gray-400";
+      loadStatus.textContent="Fetching data...";
       Papa.parse(CSV_URL, {
         download: true,
+        skipEmptyLines: true,
         complete: (res) => {
-          const rows = (res.data || []).filter(r => Array.isArray(r) && r.some(c => String(c||"").trim()!==""));
+          const rows = (res.data||[]).filter(r => Array.isArray(r) && r.some(c => String(c||"").trim()!==""));
           if (!rows.length){
-            loadStatus.className = "mt-3 text-sm text-red-700";
-            loadStatus.textContent = "The CSV appears to be empty.";
+            loadStatus.className="text-sm text-red-400";
+            loadStatus.textContent="CSV appears empty.";
             return;
           }
           const headers = rows[0].map(norm);
@@ -246,87 +212,24 @@
           handleRecords(headers, body);
         },
         error: (err) => {
-          loadStatus.className = "mt-3 text-sm text-red-700";
-          loadStatus.textContent = "Could not fetch/parse CSV: " + err.message;
-        },
-        skipEmptyLines: true
-      });
-    }
-
-    // Manual upload handlers
-    function parseCSV(file){
-      Papa.parse(file, {
-        complete: res => {
-          const rows = (res.data || []).filter(r => Array.isArray(r) && r.some(c => String(c||"").trim()!==""));
-          if (!rows.length){
-            loadStatus.className="mt-3 text-sm text-red-700";
-            loadStatus.textContent="CSV appears to be empty.";
-            return;
-          }
-          const headers = rows[0].map(norm);
-          const body = rows.slice(1);
-          handleRecords(headers, body);
-        },
-        error: err => {
-          loadStatus.className="mt-3 text-sm text-red-700";
-          loadStatus.textContent="CSV parse error: " + err.message;
-        },
-        skipEmptyLines: true
-      });
-    }
-    function parseXLSX(file){
-      const reader = new FileReader();
-      reader.onload = e => {
-        const wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(ws, {header:1, raw:false});
-        const rows = (json || []).filter(r => Array.isArray(r) && r.some(c => String(c||"").trim()!==""));
-        if (!rows.length){
-          loadStatus.className="mt-3 text-sm text-red-700";
-          loadStatus.textContent="Excel sheet appears to be empty.";
-          return;
+          loadStatus.className="text-sm text-red-400";
+          loadStatus.textContent="Could not fetch/parse CSV.";
         }
-        const headers = rows[0].map(norm);
-        const body = rows.slice(1);
-        handleRecords(headers, body);
-      };
-      reader.onerror = () => {
-        loadStatus.className="mt-3 text-sm text-red-700";
-        loadStatus.textContent="Could not read the Excel file.";
-      };
-      reader.readAsArrayBuffer(file);
+      });
     }
 
-    // Events
     document.getElementById("btnReload").addEventListener("click", loadFromCsv);
     document.getElementById("btnSearch").addEventListener("click", runSearch);
     document.getElementById("btnClear").addEventListener("click", () => {
-      plateQuery.value = "";
-      nameQuery.value  = "";
-      resultsBody.innerHTML = "";
+      plateQuery.value=""; nameQuery.value="";
+      resultsBody.innerHTML="";
       resultsWrap.classList.add("hidden");
-      statMatches.textContent = 0;
-      statCount.textContent = 0;
-      plateQuery.focus();
+      statMatches.textContent=0; statCount.textContent=0;
     });
-    plateQuery.addEventListener("keyup", e => { if (e.key === "Enter") runSearch(); });
-    nameQuery.addEventListener("keyup",  e => { if (e.key === "Enter") runSearch(); });
+    plateQuery.addEventListener("keyup", e => { if (e.key==="Enter") runSearch(); });
+    nameQuery.addEventListener("keyup", e => { if (e.key==="Enter") runSearch(); });
 
-    fileInput.addEventListener("change", () => {
-      const f = fileInput.files && fileInput.files[0];
-      if (!f) return;
-      loadStatus.className = "mt-3 text-sm text-gray-700";
-      loadStatus.textContent = "Loading local file...";
-      const n = f.name.toLowerCase();
-      if (n.endsWith(".csv")) parseCSV(f);
-      else if (n.endsWith(".xlsx") || n.endsWith(".xls")) parseXLSX(f);
-      else {
-        loadStatus.className="mt-3 text-sm text-red-700";
-        loadStatus.textContent="Unsupported file type. Please upload CSV or Excel.";
-      }
-    });
-
-    // Auto-load immediately
+    // Auto-load
     loadFromCsv();
   </script>
 </body>
