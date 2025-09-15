@@ -39,7 +39,7 @@
     <header class="mb-6">
       <h1 class="text-2xl font-bold text-white">Parking Violations Lookup</h1>
       <p class="text-sm text-gray-400 mt-1">
-        Enter a license plate or driver name to see violations. Filter by status and date range.
+        Enter a license plate or driver name to see violations. Filter by status, date range, and parking lot.
       </p>
     </header>
 
@@ -49,6 +49,10 @@
         <div class="flex items-center justify-between gap-4">
           <div>
             <div id="loadStatus" class="text-sm text-gray-400">Loading data...</div>
+            <details class="text-xs text-gray-400 mt-1" id="errDetails" style="display:none;">
+              <summary class="cursor-pointer">Error details</summary>
+              <pre id="errText" class="mt-1 whitespace-pre-wrap"></pre>
+            </details>
             <div id="lastUpdated" class="text-xs text-gray-500 mt-1"></div>
           </div>
           <button id="btnReload"
@@ -97,9 +101,12 @@
             <option value="unpaid">Unpaid</option>
           </select>
         </div>
-        <div class="flex items-end gap-2">
-          <button id="btnSearch" class="w-full md:w-auto rounded-lg bg-blue-600 text-white px-4 py-2 font-medium hover:bg-blue-700">Search</button>
-          <button id="btnClear"  class="w-full md:w-auto rounded-lg bg-gray-600 text-gray-100 px-4 py-2 font-medium hover:bg-gray-500">Clear</button>
+        <div>
+          <label for="lotFilter" class="block text-sm font-medium text-gray-200 mb-2">Filter by Parking Lot</label>
+          <select id="lotFilter"
+                  class="w-full rounded-lg border border-gray-600 bg-gray-900 text-gray-100 px-3 py-2 focus:outline-none focus:ring focus:ring-emerald-500">
+            <option value="all">All lots</option>
+          </select>
         </div>
       </div>
 
@@ -116,8 +123,9 @@
                  class="w-full rounded-lg border border-gray-600 bg-gray-900 text-gray-100 px-3 py-2 focus:outline-none focus:ring focus:ring-emerald-500" />
         </div>
         <div class="md:col-span-2 flex items-end gap-2">
+          <button id="btnSearch" class="w-full md:w-auto rounded-lg bg-blue-600 text-white px-4 py-2 font-medium hover:bg-blue-700">Search</button>
           <button id="btnApplyDates" class="w-full md:w-auto rounded-lg bg-purple-600 text-white px-4 py-2 font-medium hover:bg-purple-700">Apply Dates</button>
-          <button id="btnClearDates" class="w-full md:w-auto rounded-lg bg-gray-600 text-gray-100 px-4 py-2 font-medium hover:bg-gray-500">Clear Dates</button>
+          <button id="btnClear"  class="w-full md:w-auto rounded-lg bg-gray-600 text-gray-100 px-4 py-2 font-medium hover:bg-gray-500">Clear</button>
         </div>
       </div>
 
@@ -165,7 +173,8 @@
   </div>
 
   <script>
-    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQErBNRgH1hcQYmr4hwDiMeAB1-Xwu4AT_2r2dWuWEooMXm80T4dGzhjxzG6OehqOFux2kZDHaIaW3g/pub?output=csv";
+    const CSV_BASE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQErBNRgH1hcQYmr4hwDiMeAB1-Xwu4AT_2r2dWuWEooMXm80T4dGzhjxzG6OehqOFux2kZDHaIaW3g/pub?output=csv";
+    const CSV_URL = () => `${CSV_BASE}&_=${Date.now()}`; // cache-buster
 
     const COLS = {
       timestamp: ["timestamp","time stamp","date","date/time"],
@@ -180,11 +189,11 @@
     let DATA = [], HEADMAP = {};
     let lastFetchTime = null;
     let showEnforcer = false; // hidden by default
-
-    // ACCESS GATE state
-    let adminOverride = false;
+    let adminOverride = false; // access gate override
 
     const loadStatus  = document.getElementById("loadStatus");
+    const errDetails  = document.getElementById("errDetails");
+    const errText     = document.getElementById("errText");
     const lastUpdated = document.getElementById("lastUpdated");
     const searchSection = document.getElementById("searchSection");
     const resultsWrap = document.getElementById("resultsWrap");
@@ -195,6 +204,7 @@
     const plateQuery  = document.getElementById("plateQuery");
     const nameQuery   = document.getElementById("nameQuery");
     const statusFilter= document.getElementById("statusFilter");
+    const lotFilter   = document.getElementById("lotFilter");
     const dateFromEl  = document.getElementById("dateFrom");
     const dateToEl    = document.getElementById("dateTo");
     const overallWrap = document.getElementById("overallWrap");
@@ -211,7 +221,6 @@
     // Access gate controls
     const accessGate = document.getElementById("accessGate");
     const gatePwd    = document.getElementById("gatePwd");
-    theGateUnlock = document.getElementById("gateUnlock");
     const gateUnlock = document.getElementById("gateUnlock");
     const gateMsg    = document.getElementById("gateMsg");
     const gateNow    = document.getElementById("gateNow");
@@ -225,7 +234,6 @@
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
 
-    // "ago" display for last updated
     function fmtAgo(ms){
       const s = Math.floor(ms/1000);
       if (s < 60) return `${s}s ago`;
@@ -235,13 +243,10 @@
       return `${h}h ${m%60}m ago`;
     }
     function updateLastUpdatedDisplay(){
-      if (!lastFetchTime) {
-        lastUpdated.textContent = "";
-        return;
-      }
+      if (!lastFetchTime) { lastUpdated.textContent = ""; return; }
       const now = new Date();
       const ago = now - lastFetchTime;
-      const fullDate = lastFetchTime.toLocaleString(); // full date + time
+      const fullDate = lastFetchTime.toLocaleString();
       lastUpdated.textContent = `Last updated: ${fullDate} (${fmtAgo(ago)})`;
     }
 
@@ -286,13 +291,10 @@
 
     function statusBadge(status){
       const isPaid = status === "Paid";
-      const classes = isPaid
-        ? "bg-green-700/70 text-green-100"
-        : "bg-red-700/70 text-red-100";
+      const classes = isPaid ? "bg-green-700/70 text-green-100" : "bg-red-700/70 text-red-100";
       return `<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${classes}">${status}</span>`;
     }
 
-    // Build header row according to showEnforcer
     function renderHeader(){
       headerRow.innerHTML = `
         <th class="text-left px-3 py-2">Timestamp</th>
@@ -305,19 +307,34 @@
       `;
     }
 
+    function populateLotFilter(){
+      const prev = lotFilter.value || "all";
+      const set = new Set();
+      for (const r of DATA){
+        const loc = String(r.location || "").trim();
+        if (loc) set.add(loc);
+      }
+      const options = ["all", ...Array.from(set).sort((a,b)=>a.localeCompare(b))];
+      lotFilter.innerHTML = options.map(v => {
+        const label = v === "all" ? "All lots" : v;
+        const sel = v === prev ? "selected" : "";
+        return `<option value="${escapeHtml(v)}" ${sel}>${escapeHtml(label)}</option>`;
+      }).join("");
+    }
+
     function handleRecords(headers, rows){
       try { buildHeadMap(headers); }
       catch(e){
-        loadStatus.className="text-sm text-red-400";
-        loadStatus.textContent = e.message;
+        showError(e);
         return;
       }
       DATA = rows.map(normalizeRow);
       statRecords.textContent = DATA.length;
       searchSection.classList.remove("hidden");
       resultsWrap.classList.add("hidden");
-      loadStatus.className="text-sm text-green-400";
-      loadStatus.textContent = "Loaded " + DATA.length + " records.";
+      setStatusOk(`Loaded ${DATA.length} records.`);
+
+      populateLotFilter();
 
       lastFetchTime = new Date();
       updateLastUpdatedDisplay();
@@ -325,8 +342,7 @@
 
     function normalizePlate(s){ return String(s||"").toUpperCase().replace(/[-\s]/g,""); }
 
-    // Date helpers
-    function parseDateOnlyInput(value){ // "YYYY-MM-DD" -> Date at local midnight
+    function parseDateOnlyInput(value){
       if (!value) return null;
       const [y,m,d] = value.split("-").map(n => parseInt(n,10));
       if (!y || !m || !d) return null;
@@ -336,9 +352,9 @@
     function endOfDay(d){   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23,59,59,999); }
 
     function recordInDateRange(recTs, fromDate, toDate){
-      if (!fromDate && !toDate) return true; // no filter
+      if (!fromDate && !toDate) return true;
       const d = new Date(recTs);
-      if (isNaN(d)) return false; // if filter is set but timestamp not parseable, exclude
+      if (isNaN(d)) return false;
       const t = d.getTime();
       if (fromDate && t < startOfDay(fromDate).getTime()) return false;
       if (toDate   && t > endOfDay(toDate).getTime())   return false;
@@ -347,7 +363,6 @@
 
     function renderResults(matches){
       renderHeader();
-
       resultsBody.innerHTML = "";
       for (const r of matches){
         const st = normalizeStatus(r.status);
@@ -370,11 +385,12 @@
     function runSearch(){
       const plateQ = plateQuery.value.trim();
       const nameQ  = nameQuery.value.trim();
-      const statusF = statusFilter.value; // 'all' | 'paid' | 'unpaid'
+      const statusF = statusFilter.value;
+      const lotF = lotFilter.value;
       const fromD = parseDateOnlyInput(dateFromEl.value);
       const toD   = parseDateOnlyInput(dateToEl.value);
 
-      if (!plateQ && !nameQ && statusF === 'all' && !fromD && !toD){
+      if (!plateQ && !nameQ && statusF === 'all' && lotF === 'all' && !fromD && !toD){
         resultsWrap.classList.add("hidden");
         overallWrap.classList.add("hidden");
         statMatches.textContent = 0;
@@ -385,9 +401,11 @@
 
       const normPlateQ = normalizePlate(plateQ);
       const lcNameQ = nameQ.toLowerCase();
+      const lotSel = String(lotF || "").toLowerCase();
 
       const matches = DATA.filter(r => {
-        let plateOk = true, nameOk = true, statusOk = true, dateOk = true;
+        let plateOk = true, nameOk = true, statusOk = true, dateOk = true, lotOk = true;
+
         if (plateQ) plateOk = normalizePlate(r.plate).includes(normPlateQ);
         if (nameQ)  nameOk  = String(r.name||"").toLowerCase().includes(lcNameQ);
         if (statusF !== 'all') {
@@ -396,14 +414,16 @@
         if (fromD || toD) {
           dateOk = recordInDateRange(r.timestamp, fromD, toD);
         }
-        return plateOk && nameOk && statusOk && dateOk;
+        if (lotF !== 'all') {
+          lotOk = String(r.location||"").toLowerCase().trim() === lotSel;
+        }
+
+        return plateOk && nameOk && statusOk && dateOk && lotOk;
       });
 
-      // Stats reflect current filters
       statMatches.textContent = matches.length;
       statCount.textContent = matches.length;
 
-      // Overall badge: Paid only if ALL matches are Paid
       let overall = "Unpaid";
       if (matches.length > 0 && matches.every(r => normalizeStatus(r.status) === "Paid")) {
         overall = "Paid";
@@ -416,31 +436,50 @@
       renderResults(matches);
     }
 
-    function loadFromCsv(){
-      loadStatus.className="text-sm text-gray-400";
-      loadStatus.textContent="Fetching data...";
-      Papa.parse(CSV_URL, {
-        download: true,
-        skipEmptyLines: true,
-        complete: (res) => {
-          const rows = (res.data||[]).filter(r => Array.isArray(r) && r.some(c => String(c||"").trim()!==""));
-          if (!rows.length){
-            loadStatus.className="text-sm text-red-400";
-            loadStatus.textContent="CSV appears empty.";
-            return;
-          }
-          const headers = rows[0].map(norm);
-          const body = rows.slice(1);
-          handleRecords(headers, body);
-        },
-        error: () => {
-          loadStatus.className="text-sm text-red-400";
-          loadStatus.textContent="Could not fetch/parse CSV.";
-        }
-      });
+    function setStatusOk(msg){
+      errDetails.style.display = "none";
+      errText.textContent = "";
+      loadStatus.className = "text-sm text-green-400";
+      loadStatus.textContent = msg;
+    }
+    function showError(err){
+      loadStatus.className = "text-sm text-red-400";
+      loadStatus.textContent = "Could not fetch/parse CSV.";
+      errDetails.style.display = "";
+      errText.textContent = String(err && err.stack ? err.stack : err);
     }
 
-    // Enforcer lock/unlock behavior
+    // New robust loader with fetch + cache-bust + Papa.parse(text)
+    async function loadFromCsv(){
+      loadStatus.className="text-sm text-gray-400";
+      loadStatus.textContent="Fetching data...";
+      errDetails.style.display = "none";
+      errText.textContent = "";
+
+      try {
+        const res = await fetch(CSV_URL(), { cache: "no-store", mode: "cors" });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        }
+        const csvText = await res.text();
+        const parsed = Papa.parse(csvText, { skipEmptyLines: true });
+        if (parsed.errors && parsed.errors.length) {
+          throw new Error(parsed.errors.map(e => e.message).join("; "));
+        }
+        const rows = (parsed.data||[]).filter(r => Array.isArray(r) && r.some(c => String(c||"").trim()!==""));
+        if (!rows.length) throw new Error("CSV appears empty.");
+        const headers = rows[0].map(norm);
+        const body = rows.slice(1);
+        handleRecords(headers, body);
+      } catch (err) {
+        showError(err);
+      } finally {
+        lastFetchTime = new Date();
+        updateLastUpdatedDisplay();
+      }
+    }
+
+    // Enforcer lock/unlock
     function updateEnforcerUI(){
       enforcerState.textContent = showEnforcer ? "Enforcer: Visible" : "Enforcer: Hidden";
       enforcerState.className = "text-xs rounded-full px-2 py-1 " + (showEnforcer ? "bg-green-700 text-green-100" : "bg-gray-700 text-gray-200");
@@ -448,28 +487,15 @@
       enforcerPwd.classList.toggle("hidden", showEnforcer);
       btnLock.classList.toggle("hidden", !showEnforcer);
     }
-
     btnUnlock.addEventListener("click", () => {
       enforcerMsg.textContent = "";
       const val = enforcerPwd.value.trim();
-      if (val === "2821"){
-        showEnforcer = true;
-        updateEnforcerUI();
-        runSearch(); // re-render with enforcer visible
-        enforcerPwd.value = "";
-      } else {
-        enforcerMsg.textContent = "Incorrect password.";
-      }
+      if (val === "2821"){ showEnforcer = true; updateEnforcerUI(); runSearch(); enforcerPwd.value=""; }
+      else { enforcerMsg.textContent = "Incorrect password."; }
     });
-
-    btnLock.addEventListener("click", () => {
-      showEnforcer = false;
-      updateEnforcerUI();
-      runSearch(); // re-render with enforcer hidden
-    });
+    btnLock.addEventListener("click", () => { showEnforcer = false; updateEnforcerUI(); runSearch(); });
 
     // ===== Access Gate (time restriction in America/New_York) =====
-    // Allowed window: 07:45 to 15:15 (inclusive) in America/New_York
     function nyNowParts(){
       const fmt = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/New_York",
@@ -489,52 +515,27 @@
         label: `${map.month}/${map.day}/${map.year} ${map.hour}:${map.minute}:${map.second} ET`
       };
     }
-    function nyMinutesSinceMidnight(){
-      const p = nyNowParts();
-      return p.hh * 60 + p.mm;
-    }
-    function withinAllowedWindow(){
-      const mins = nyMinutesSinceMidnight();
-      const start = 7*60 + 45;  // 07:45
-      const end   = 15*60 + 15; // 15:15
-      return mins >= start && mins <= end;
-    }
-    function updateGateNowLabel(){
-      const p = nyNowParts();
-      gateNow.textContent = `Current time: ${p.label}`;
-    }
-    function showGate(){
-      accessGate.classList.remove("hidden");
-      updateGateNowLabel();
-    }
-    function hideGate(){
-      accessGate.classList.add("hidden");
-    }
-    function checkAccessGate(){
-      if (adminOverride) { hideGate(); return; }
-      if (withinAllowedWindow()) hideGate(); else showGate();
-    }
-
+    function nyMinutesSinceMidnight(){ const p = nyNowParts(); return p.hh*60 + p.mm; }
+    function withinAllowedWindow(){ const mins = nyMinutesSinceMidnight(); return mins >= 465 && mins <= 915; } // 07:45–15:15
+    function updateGateNowLabel(){ const p = nyNowParts(); gateNow.textContent = `Current time: ${p.label}`; }
+    function showGate(){ accessGate.classList.remove("hidden"); updateGateNowLabel(); }
+    function hideGate(){ accessGate.classList.add("hidden"); }
+    function checkAccessGate(){ if (adminOverride) { hideGate(); return; } if (withinAllowedWindow()) hideGate(); else showGate(); }
     gateUnlock.addEventListener("click", () => {
       gateMsg.textContent = "";
       const val = gatePwd.value.trim();
-      if (val === "2821") {
-        adminOverride = true;
-        sessionStorage.setItem("adminOverride", "1");
-        hideGate();
-        gatePwd.value = "";
-      } else {
-        gateMsg.textContent = "Incorrect password.";
-      }
+      if (val === "2821") { adminOverride = true; sessionStorage.setItem("adminOverride","1"); hideGate(); gatePwd.value=""; }
+      else { gateMsg.textContent = "Incorrect password."; }
     });
     if (sessionStorage.getItem("adminOverride") === "1") adminOverride = true;
 
-    // ===== Events =====
+    // Events
     document.getElementById("btnReload").addEventListener("click", loadFromCsv);
     document.getElementById("btnSearch").addEventListener("click", runSearch);
     document.getElementById("btnClear").addEventListener("click", () => {
       plateQuery.value=""; nameQuery.value="";
       statusFilter.value="all";
+      lotFilter.value="all";
       dateFromEl.value = "";
       dateToEl.value = "";
       resultsBody.innerHTML="";
@@ -542,27 +543,20 @@
       overallWrap.classList.add("hidden");
       statMatches.textContent=0; statCount.textContent=0;
     });
+    statusFilter.addEventListener("change", runSearch);
+    lotFilter.addEventListener("change", runSearch);
+    document.getElementById("btnApplyDates").addEventListener("click", runSearch);
     plateQuery.addEventListener("keyup", e => { if (e.key==="Enter") runSearch(); });
     nameQuery.addEventListener("keyup", e => { if (e.key==="Enter") runSearch(); });
-    statusFilter.addEventListener("change", runSearch);
-    document.getElementById("btnApplyDates").addEventListener("click", runSearch);
-    document.getElementById("btnClearDates").addEventListener("click", () => { dateFromEl.value = ""; dateToEl.value = ""; runSearch(); });
 
-    // Initial UI state + load
+    // Init
     updateEnforcerUI();
-    loadFromCsv();
-
-    // Auto-refresh data every 30 seconds
-    setInterval(() => { loadFromCsv(); }, 60000);
-
-    // Update "last updated" display every second
+    loadFromCsv();                 // first load
+    setInterval(loadFromCsv, 60000); // auto-refresh every 1 minute
     setInterval(updateLastUpdatedDisplay, 1000);
-
-    // Access gate checks
-    checkAccessGate();                     // on load
-    setInterval(checkAccessGate, 30000);   // re-check every 30s
-    setInterval(updateGateNowLabel, 1000); // update the clock text on the gate
+    checkAccessGate();
+    setInterval(checkAccessGate, 30000);
+    setInterval(updateGateNowLabel, 1000);
   </script>
 </body>
 </html>
-
