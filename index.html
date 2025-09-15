@@ -20,7 +20,10 @@
     <!-- Status -->
     <section class="bg-gray-800 rounded-xl shadow p-4 mb-6">
       <div class="flex items-center justify-between gap-4">
-        <div id="loadStatus" class="text-sm text-gray-400">Loading data...</div>
+        <div>
+          <div id="loadStatus" class="text-sm text-gray-400">Loading data...</div>
+          <div id="lastUpdated" class="text-xs text-gray-500 mt-1"></div>
+        </div>
         <button id="btnReload"
                 class="rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-medium hover:bg-emerald-700">
           Reload
@@ -46,6 +49,12 @@
           <button id="btnClear"  class="w-full md:w-auto md:ml-2 rounded-lg bg-gray-600 text-gray-100 px-4 py-2 font-medium hover:bg-gray-500">Clear</button>
         </div>
       </div>
+
+      <!-- Overall paid/unpaid banner -->
+      <div id="overallWrap" class="hidden mt-4">
+        <div id="overallBadge" class="inline-flex items-center rounded-full px-3 py-1 text-sm font-medium"></div>
+      </div>
+
       <div class="mt-4 grid gap-3 md:grid-cols-3">
         <div class="bg-blue-900 rounded-lg p-3">
           <div class="text-xs text-blue-300">Records loaded</div>
@@ -75,6 +84,7 @@
               <th class="text-left px-3 py-2">Reason for Citation</th>
               <th class="text-left px-3 py-2">Location</th>
               <th class="text-left px-3 py-2">Enforcer</th>
+              <th class="text-left px-3 py-2">Status</th>
             </tr>
           </thead>
           <tbody id="resultsBody" class="divide-y divide-gray-700"></tbody>
@@ -84,7 +94,6 @@
   </div>
 
   <script>
-    // Live Google Sheets CSV link (kept hidden in code)
     const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQErBNRgH1hcQYmr4hwDiMeAB1-Xwu4AT_2r2dWuWEooMXm80T4dGzhjxzG6OehqOFux2kZDHaIaW3g/pub?output=csv";
 
     const COLS = {
@@ -93,12 +102,15 @@
       plate: ["license plate #","license plate","plate","plate #","license #"],
       name: ["driver's name (if known)","driver name","student name","name"],
       location: ["parking location:","location","lot"],
-      enforcer: ["parking enforcer first and last name:","enforcer","issued by"]
+      enforcer: ["parking enforcer first and last name:","enforcer","issued by"],
+      status: ["status","payment status","paid","is paid","paid?"]
     };
 
     let DATA = [], HEADMAP = {};
+    let lastFetchTime = null;
 
     const loadStatus  = document.getElementById("loadStatus");
+    const lastUpdated = document.getElementById("lastUpdated");
     const searchSection = document.getElementById("searchSection");
     const resultsWrap = document.getElementById("resultsWrap");
     const resultsBody = document.getElementById("resultsBody");
@@ -107,6 +119,8 @@
     const statCount   = document.getElementById("statCount");
     const plateQuery  = document.getElementById("plateQuery");
     const nameQuery   = document.getElementById("nameQuery");
+    const overallWrap = document.getElementById("overallWrap");
+    const overallBadge= document.getElementById("overallBadge");
 
     function norm(s){ return String(s||"").trim(); }
     function escapeHtml(s){ return String(s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;"); }
@@ -116,6 +130,26 @@
       const pad=n=>String(n).padStart(2,"0");
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
+
+    function fmtAgo(ms){
+      const s = Math.floor(ms/1000);
+      if (s < 60) return `${s}s ago`;
+      const m = Math.floor(s/60);
+      if (m < 60) return `${m}m ${s%60}s ago`;
+      const h = Math.floor(m/60);
+      return `${h}h ${m%60}m ago`;
+    }
+    function updateLastUpdatedDisplay(){
+      if (!lastFetchTime) {
+        lastUpdated.textContent = "";
+        return;
+      }
+      const now = new Date();
+      const ago = now - lastFetchTime;
+      const fullDate = lastFetchTime.toLocaleString(); // full date + time
+      lastUpdated.textContent = `Last updated: ${fullDate} (${fmtAgo(ago)})`;
+    }
+
     function findKey(header){
       const h = String(header||"").toLowerCase().replace(/\s+/g," ").trim();
       for (const k of Object.keys(COLS)){
@@ -127,6 +161,7 @@
       }
       return null;
     }
+
     function buildHeadMap(headers){
       HEADMAP = {};
       headers.forEach((h,i) => {
@@ -137,14 +172,31 @@
       const missing = required.filter(k => !(k in HEADMAP));
       if (missing.length) throw new Error("Missing required columns: " + missing.join(", "));
     }
+
     function normalizeRow(row){
-      const out = {timestamp:"",reason:"",plate:"",name:"",location:"",enforcer:""};
+      const out = {timestamp:"",reason:"",plate:"",name:"",location:"",enforcer:"",status:""};
       for (const key of Object.keys(HEADMAP)){
         const idx = HEADMAP[key];
         out[key] = norm(row[idx]);
       }
       return out;
     }
+
+    function normalizeStatus(v){
+      const s = String(v||"").trim().toLowerCase();
+      if (["paid","true","yes","y","1","paid in full"].includes(s)) return "Paid";
+      if (["unpaid","false","no","n","0"].includes(s)) return "Unpaid";
+      return "Unpaid";
+    }
+
+    function statusBadge(status){
+      const isPaid = status === "Paid";
+      const classes = isPaid
+        ? "bg-green-700/70 text-green-100"
+        : "bg-red-700/70 text-red-100";
+      return `<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${classes}">${status}</span>`;
+    }
+
     function handleRecords(headers, rows){
       try { buildHeadMap(headers); }
       catch(e){
@@ -158,13 +210,19 @@
       resultsWrap.classList.add("hidden");
       loadStatus.className="text-sm text-green-400";
       loadStatus.textContent = "Loaded " + DATA.length + " records.";
+
+      lastFetchTime = new Date();
+      updateLastUpdatedDisplay();
     }
+
     function normalizePlate(s){ return String(s||"").toUpperCase().replace(/[-\s]/g,""); }
+
     function runSearch(){
       const plateQ = plateQuery.value.trim();
       const nameQ  = nameQuery.value.trim();
       if (!plateQ && !nameQ){
         resultsWrap.classList.add("hidden");
+        overallWrap.classList.add("hidden");
         statMatches.textContent = 0;
         statCount.textContent = 0;
         resultsBody.innerHTML = "";
@@ -172,16 +230,30 @@
       }
       const normPlateQ = normalizePlate(plateQ);
       const lcNameQ = nameQ.toLowerCase();
+
       const matches = DATA.filter(r => {
         let plateOk = true, nameOk = true;
         if (plateQ) plateOk = normalizePlate(r.plate).includes(normPlateQ);
         if (nameQ)  nameOk  = String(r.name||"").toLowerCase().includes(lcNameQ);
         return plateOk && nameOk;
       });
+
       statMatches.textContent = matches.length;
       statCount.textContent = matches.length;
+
+      let overall = "Unpaid";
+      if (matches.length > 0 && matches.every(r => normalizeStatus(r.status) === "Paid")) {
+        overall = "Paid";
+      }
+
+      overallWrap.classList.remove("hidden");
+      overallBadge.className = "inline-flex items-center rounded-full px-3 py-1 text-sm font-medium " +
+        (overall === "Paid" ? "bg-green-700/70 text-green-100" : "bg-red-700/70 text-red-100");
+      overallBadge.textContent = overall;
+
       resultsBody.innerHTML = "";
       for (const r of matches){
+        const st = normalizeStatus(r.status);
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td class="px-3 py-2">${escapeHtml(formatDate(r.timestamp))}</td>
@@ -189,11 +261,13 @@
           <td class="px-3 py-2">${escapeHtml(r.name)}</td>
           <td class="px-3 py-2">${escapeHtml(r.reason)}</td>
           <td class="px-3 py-2">${escapeHtml(r.location || "")}</td>
-          <td class="px-3 py-2">${escapeHtml(r.enforcer || "")}</td>`;
+          <td class="px-3 py-2">${escapeHtml(r.enforcer || "")}</td>
+          <td class="px-3 py-2">${statusBadge(st)}</td>`;
         resultsBody.appendChild(tr);
       }
       resultsWrap.classList.remove("hidden");
     }
+
     function loadFromCsv(){
       loadStatus.className="text-sm text-gray-400";
       loadStatus.textContent="Fetching data...";
@@ -211,7 +285,7 @@
           const body = rows.slice(1);
           handleRecords(headers, body);
         },
-        error: (err) => {
+        error: () => {
           loadStatus.className="text-sm text-red-400";
           loadStatus.textContent="Could not fetch/parse CSV.";
         }
@@ -224,13 +298,22 @@
       plateQuery.value=""; nameQuery.value="";
       resultsBody.innerHTML="";
       resultsWrap.classList.add("hidden");
+      overallWrap.classList.add("hidden");
       statMatches.textContent=0; statCount.textContent=0;
     });
     plateQuery.addEventListener("keyup", e => { if (e.key==="Enter") runSearch(); });
     nameQuery.addEventListener("keyup", e => { if (e.key==="Enter") runSearch(); });
 
-    // Auto-load
+    // Initial load
     loadFromCsv();
+
+    // Auto-refresh data every 30 seconds
+    setInterval(() => {
+      loadFromCsv();
+    }, 30000);
+
+    // Update "last updated" display every second
+    setInterval(updateLastUpdatedDisplay, 1000);
   </script>
 </body>
 </html>
